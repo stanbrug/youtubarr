@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Youtubarr</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#2a2f3a;--text:#e6e8ec;--muted:#8b93a3;--accent:#e5484d;--ok:#3fb950;--warn:#d29922}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;align-items:center;gap:1.5rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2;flex-wrap:wrap}
+header h1{font-size:1.1rem;margin:0}
+nav button{background:none;border:0;color:var(--muted);padding:.4rem .7rem;border-radius:6px;cursor:pointer;font:inherit}
+nav button.active{background:var(--panel);color:var(--text)}
+main{max-width:1100px;margin:0 auto;padding:1.2rem}
+section{display:none}section.active{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:1rem 1.1rem;margin-bottom:1rem}
+.panel h2{font-size:.95rem;margin:0 0 .8rem}
+label{display:block;font-size:.78rem;color:var(--muted);margin:.6rem 0 .2rem}
+input,select,textarea{width:100%;padding:.45rem .55rem;background:#0c0e12;color:var(--text);border:1px solid var(--line);border-radius:6px;font:inherit}
+textarea{min-height:7rem;resize:vertical}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 1rem}
+.row{display:flex;gap:.5rem;align-items:end;flex-wrap:wrap}.row>*{flex:1}
+button.b{background:#262b36;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:.4rem .75rem;cursor:pointer;font:inherit;white-space:nowrap}
+button.b:hover{border-color:#3a4150}
+button.p{background:var(--accent);border-color:var(--accent);color:#fff}
+button.s{padding:.2rem .5rem;font-size:.8rem}
+table{width:100%;border-collapse:collapse}
+td,th{text-align:left;padding:.45rem .4rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.75rem;color:var(--muted);font-weight:600}
+.muted{color:var(--muted);font-size:.8rem}.err{color:var(--accent);font-size:.8rem}.ok{color:var(--ok)}
+.pill{display:inline-block;padding:0 .45rem;border-radius:99px;font-size:.72rem;border:1px solid var(--line);color:var(--muted)}
+.actions{display:flex;gap:.3rem;flex-wrap:wrap}
+.log{font:12px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap;max-height:22rem;overflow:auto;color:#b9c0cc}
+.bar{height:6px;background:#0c0e12;border-radius:3px;overflow:hidden;margin-top:.3rem}.bar div{height:100%;background:var(--accent)}
+.check{display:flex;align-items:center;gap:.5rem;margin:.35rem 0}.check input{width:auto}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;max-width:640px;width:92vw}
+dialog::backdrop{background:#0008}
+#toast{position:fixed;bottom:1rem;right:1rem;background:var(--panel);border:1px solid var(--line);padding:.6rem .9rem;border-radius:8px;display:none}
+@media (max-width:640px){td:nth-child(3),th:nth-child(3),td:nth-child(4),th:nth-child(4){display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Youtubarr</h1>
+  <nav>
+    <button data-tab="subs" class="active">Abonnementen</button>
+    <button data-tab="settings">Instellingen</button>
+    <button data-tab="rules">Opschoonregels</button>
+    <button data-tab="status">Status</button>
+  </nav>
+</header>
+<main>
+
+<section id="subs" class="active">
+  <div class="panel">
+    <h2>Kanaal of playlist toevoegen</h2>
+    <div class="row">
+      <div style="flex:3"><label>URL, @handle, kanaal-ID (UC…) of playlist-ID (PL…)</label><input id="addInput" placeholder="https://www.youtube.com/@kanaal"></div>
+      <div><label>Weergave in Plex</label><select id="addMode"><option value="">Automatisch</option><option value="channel">Kanaal (seizoen = jaar)</option><option value="playlist">Playlist als serie</option></select></div>
+      <div style="flex:.6"><label>Min. duur (s)</label><input id="addMin" type="number" min="0" placeholder="0"></div>
+      <div style="flex:0"><button class="b p" id="addBtn">Toevoegen</button></div>
+    </div>
+    <p class="muted">Tip: zet min. duur op 181 om Shorts over te slaan.</p>
+  </div>
+  <div class="panel">
+    <h2>Abonnementen</h2>
+    <table><thead><tr><th>Naam</th><th>Video's</th><th>Laatste controle</th><th>Weergave</th><th></th></tr></thead><tbody id="subsBody"></tbody></table>
+  </div>
+</section>
+
+<section id="settings">
+  <form id="settingsForm">
+  <div class="panel"><h2>YouTube</h2>
+    <div class="grid">
+      <div><label>YouTube Data API v3-sleutel</label><input name="youtube_api_key" type="password" autocomplete="off"></div>
+      <div><label>Nieuwe uploads controleren elke (minuten)</label><input name="check_interval_minutes" type="number" min="5"></div>
+      <div><label>Volledige controle (verwijderde video's) elke (uur)</label><input name="full_check_hours" type="number" min="1"></div>
+      <div><label>Cookies-bestand voor yt-dlp (pad in de container, optioneel)</label><input name="cookies_file" placeholder="/data/cookies.txt"></div>
+    </div>
+  </div>
+  <div class="panel"><h2>Plex</h2>
+    <div class="grid">
+      <div><label>Plex-URL</label><input name="plex_url" placeholder="http://192.168.1.10:32400"></div>
+      <div><label>Plex-token</label><input name="plex_token" type="password" autocomplete="off"></div>
+      <div><label>Bibliotheek (TV Shows, agent Plex Personal Media)</label><select name="plex_section_id" id="sectionSelect"></select></div>
+      <div><label>Pad van de rclone-mount zoals Plex hem ziet</label><input name="plex_path_prefix" placeholder="/mnt/youtubarr"></div>
+      <div><label>Plex-verzoeken per seconde (metadata/posters)</label><input name="plex_rate_per_second" type="number" step="0.5" min="0.1"></div>
+    </div>
+    <div style="margin-top:.8rem"><button type="button" class="b" id="plexTest">Verbinding testen / bibliotheken ophalen</button> <span id="plexTestOut" class="muted"></span></div>
+  </div>
+  <div class="panel"><h2>Afspelen en cache</h2>
+    <div class="grid">
+      <div><label>Max. resolutie (hoogte)</label><select name="max_height"><option>2160</option><option>1440</option><option>1080</option><option>720</option><option>480</option></select></div>
+      <div><label>Geschatte bitrate (kbps), bovengrens van de download</label><input name="estimated_bitrate_kbps" type="number" min="1000"></div>
+      <div><label>Max. gelijktijdige downloads</label><input name="max_concurrent_downloads" type="number" min="1"></div>
+      <div><label>Bij eerste keer afspelen wachten op volledige download (s)</label><input name="wait_for_complete_secs" type="number" min="0"></div>
+      <div><label>Cache: max. grootte (GB, 0 = geen limiet)</label><input name="max_cache_gb" type="number" min="0"></div>
+      <div><label>Cache: verwijderen als niet bekeken in (dagen, 0 = nooit)</label><input name="cache_days" type="number" min="0"></div>
+    </div>
+    <div class="muted" id="cacheUsage" style="margin-top:.6rem"></div>
+  </div>
+  <div class="panel"><h2>Beveiliging</h2>
+    <div class="grid"><div><label>Wachtwoord voor deze pagina (gebruikersnaam maakt niet uit; leeg = geen)</label><input name="ui_password" type="password" autocomplete="new-password"></div></div>
+  </div>
+  <button class="b p">Opslaan</button> <span id="saved" class="muted"></span>
+  </form>
+</section>
+
+<section id="rules">
+  <div class="panel"><h2>Beschrijvingen opschonen (standaard voor alle abonnementen)</h2>
+    <p class="muted">Het origineel blijft bewaard. Na wijzigen worden alle beschrijvingen opnieuw naar Plex gestuurd, zonder YouTube-verzoeken. Per abonnement kun je regels aan- of uitzetten.</p>
+    <div id="rulesChecks"></div>
+    <label>Maximale lengte (tekens)</label><input id="ruleMax" type="number" min="0">
+    <label>Sponsor-trefwoorden (één per regel; regels met zo'n woord verdwijnen)</label><textarea id="ruleKeywords"></textarea>
+    <div style="margin-top:.8rem"><button class="b p" id="rulesSave">Opslaan</button> <span id="rulesSaved" class="muted"></span></div>
+  </div>
+  <div class="panel"><h2>Voorbeeld</h2>
+    <label>Plak een beschrijving</label><textarea id="previewIn"></textarea>
+    <label>Resultaat</label><textarea id="previewOut" readonly></textarea>
+  </div>
+</section>
+
+<section id="status">
+  <div class="grid">
+    <div class="panel"><h2>YouTube API vandaag</h2><div id="quota"></div></div>
+    <div class="panel"><h2>Cache</h2><div id="cacheStat"></div></div>
+    <div class="panel"><h2>Plex-wachtrij</h2><div id="plexStat"></div></div>
+  </div>
+  <div class="panel"><h2>Log</h2><div class="log" id="log"></div></div>
+</section>
+</main>
+
+<dialog id="dlg"><div id="dlgBody"></div><div style="text-align:right;margin-top:1rem"><button class="b" onclick="dlg.close()">Sluiten</button></div></dialog>
+<div id="toast"></div>
+
+<script>
+const RULES = [["urls","URL's verwijderen"],["sponsor","Sponsor-/affiliate-regels weghalen"],["social","Social-media-blok aan het eind weghalen"],["hashtags","Hashtags aan het eind weghalen"],["timestamps","Tijdstempels/hoofdstukken weghalen"]];
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = async (path, opts={}) => {
+  const r = await fetch(path, {...opts, headers: {"Content-Type": "application/json"}, body: opts.body ? JSON.stringify(opts.body) : undefined});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.ok === false) throw new Error(data.error || r.statusText);
+  return data;
+};
+function toast(msg, bad) { const t = $("#toast"); t.textContent = msg; t.style.color = bad ? "var(--accent)" : ""; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 4000); }
+const ago = ts => { if (!ts) return "nooit"; const s = Date.now()/1000 - ts; if (s < 90) return "zojuist"; if (s < 3600) return Math.round(s/60) + " min geleden"; if (s < 86400) return Math.round(s/3600) + " uur geleden"; return Math.round(s/86400) + " dagen geleden"; };
+const gb = b => (b / 1073741824).toFixed(1) + " GB";
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button, section").forEach(x => x.classList.remove("active"));
+  b.classList.add("active"); $("#" + b.dataset.tab).classList.add("active");
+  ({subs: loadSubs, settings: loadSettings, rules: loadRules, status: loadStatus})[b.dataset.tab]();
+});
+
+// --- subscriptions ---
+let subs = [];
+async function loadSubs() {
+  subs = await api("/api/subscriptions");
+  $("#subsBody").innerHTML = subs.length ? subs.map(s => `<tr>
+    <td><strong>${esc(s.title)}</strong> ${s.enabled ? "" : '<span class="pill">gepauzeerd</span>'}<br>
+      <span class="muted">${s.kind === "channel" ? "Kanaal" : "Playlist"} · ${esc(s.source_id)}${s.min_duration ? " · min " + s.min_duration + " s" : ""}</span>
+      ${s.last_error ? `<div class="err">${esc(s.last_error)}</div>` : ""}</td>
+    <td>${s.videos}<br><span class="muted">${s.in_plex} in Plex</span></td>
+    <td class="muted">${ago(s.last_check_at)}<br>volledig: ${ago(s.last_full_at)}</td>
+    <td><span class="pill">${s.mode === "channel" ? "seizoen = jaar" : "playlist-serie"}</span></td>
+    <td><div class="actions">
+      <button class="b s" onclick="subAction(${s.id},'check')">Nu controleren</button>
+      <button class="b s" onclick="toggleSub(${s.id},${s.enabled ? 0 : 1})">${s.enabled ? "Pauzeren" : "Hervatten"}</button>
+      <button class="b s" onclick="subRules(${s.id})">Regels</button>
+      <button class="b s" onclick="subVideos(${s.id})">Video's</button>
+      <button class="b s" onclick="subAction(${s.id},'repush')">Metadata opnieuw</button>
+      <button class="b s" onclick="delSub(${s.id})">Verwijderen</button>
+    </div></td></tr>`).join("") : '<tr><td colspan="5" class="muted">Nog geen abonnementen.</td></tr>';
+}
+$("#addBtn").onclick = async () => {
+  const btn = $("#addBtn"); btn.disabled = true;
+  try {
+    const r = await api("/api/subscriptions", {method: "POST", body: {input: $("#addInput").value, mode: $("#addMode").value, min_duration: +$("#addMin").value || 0}});
+    toast(`${r.subscription.title} toegevoegd; video's worden opgehaald`); $("#addInput").value = ""; loadSubs();
+  } catch (e) { toast(e.message, true); } finally { btn.disabled = false; }
+};
+async function subAction(id, action) {
+  await api(`/api/subscriptions/${id}/${action}`, {method: "POST"});
+  toast(action === "check" ? "Controle gestart" : "Metadata en posters worden opnieuw naar Plex gestuurd");
+}
+async function toggleSub(id, enabled) { await api(`/api/subscriptions/${id}`, {method: "PATCH", body: {enabled}}); loadSubs(); }
+async function delSub(id) {
+  const s = subs.find(x => x.id === id);
+  if (!confirm(`"${s.title}" verwijderen? De serie verdwijnt uit Plex en gecachte video's worden opgeruimd.`)) return;
+  await api(`/api/subscriptions/${id}`, {method: "DELETE"}); loadSubs();
+}
+async function subVideos(id) {
+  const rows = await api(`/api/subscriptions/${id}/videos`);
+  $("#dlgBody").innerHTML = `<h3>${esc(subs.find(x => x.id === id).title)}</h3><table><thead><tr><th>Aflevering</th><th>Titel</th><th>Plex</th></tr></thead><tbody>${
+    rows.map(r => `<tr><td class="muted">S${r.season}E${r.episode}</td><td>${esc(r.title)}<br><span class="muted">${Math.round(r.duration/60)} min${r.cached ? " · in cache" : ""}</span></td>
+      <td class="muted">${r.meta_pushed_at ? '<span class="ok">klaar</span>' : r.plex_key ? "metadata volgt" : "wacht op scan"}</td></tr>`).join("")}</tbody></table>`;
+  dlg.showModal();
+}
+async function subRules(id) {
+  const s = subs.find(x => x.id === id), cur = s.rules || {};
+  const opt = (k) => `<select data-rule="${k}"><option value="">standaard</option><option value="1" ${cur[k] === true ? "selected" : ""}>aan</option><option value="0" ${cur[k] === false ? "selected" : ""}>uit</option></select>`;
+  $("#dlgBody").innerHTML = `<h3>Opschoonregels voor ${esc(s.title)}</h3>
+    ${RULES.map(([k, l]) => `<label>${l}</label>${opt(k)}`).join("")}
+    <label>Min. duur (s)</label><input id="subMin" type="number" min="0" value="${s.min_duration || 0}">
+    <div style="margin-top:.8rem"><button class="b p" id="subRulesSave">Opslaan</button></div>`;
+  $("#subRulesSave").onclick = async () => {
+    const rules = {};
+    document.querySelectorAll("[data-rule]").forEach(el => { if (el.value !== "") rules[el.dataset.rule] = el.value === "1"; });
+    await api(`/api/subscriptions/${id}`, {method: "PATCH", body: {rules, min_duration: +$("#subMin").value || 0}});
+    dlg.close(); toast("Opgeslagen; beschrijvingen worden opnieuw gepusht"); loadSubs();
+  };
+  dlg.showModal();
+}
+
+// --- settings ---
+let settings = {};
+async function loadSettings() {
+  settings = await api("/api/settings");
+  const f = $("#settingsForm");
+  for (const el of f.elements) {
+    if (!el.name) continue;
+    if (["youtube_api_key", "plex_token", "ui_password"].includes(el.name)) { el.value = ""; el.placeholder = settings[el.name + "_set"] ? "(ingesteld; leeg laten = ongewijzigd)" : "(niet ingesteld)"; continue; }
+    if (el.name === "plex_section_id") { fillSections([], settings.plex_section_id); continue; }
+    el.value = settings[el.name] ?? "";
+  }
+  const st = await api("/api/status");
+  $("#cacheUsage").textContent = `In gebruik: ${gb(st.cache.bytes)} in ${st.cache.files} video's`;
+}
+function fillSections(list, current) {
+  const sel = $("#sectionSelect");
+  const opts = list.filter(s => s.type === "show").map(s => `<option value="${esc(s.key)}">${esc(s.title)} (${esc(s.key)}${s.agent && s.agent.includes("none") ? "" : ", andere agent"})</option>`);
+  if (current && !list.some(s => s.key === current)) opts.unshift(`<option value="${esc(current)}">bibliotheek ${esc(current)}</option>`);
+  sel.innerHTML = opts.join("") || '<option value="">klik op "Verbinding testen"</option>';
+  if (current) sel.value = current;
+}
+$("#plexTest").onclick = async () => {
+  const out = $("#plexTestOut"); out.textContent = "bezig…";
+  try {
+    await saveSettings(true);
+    const r = await api("/api/plex/test");
+    out.innerHTML = `<span class="ok">verbonden</span> (Plex ${esc(r.version)})`;
+    fillSections(r.sections, $("#sectionSelect").value || settings.plex_section_id);
+  } catch (e) { out.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+async function saveSettings(quiet) {
+  const body = {};
+  for (const el of $("#settingsForm").elements) if (el.name) body[el.name] = el.value;
+  await api("/api/settings", {method: "POST", body});
+  if (!quiet) { $("#saved").textContent = "opgeslagen"; setTimeout(() => $("#saved").textContent = "", 3000); loadSettings(); }
+}
+$("#settingsForm").onsubmit = e => { e.preventDefault(); saveSettings().catch(err => toast(err.message, true)); };
+
+// --- rules ---
+async function loadRules() {
+  settings = await api("/api/settings");
+  const r = settings.rules;
+  $("#rulesChecks").innerHTML = RULES.map(([k, l]) => `<div class="check"><input type="checkbox" id="rule_${k}" ${r[k] ? "checked" : ""}><label for="rule_${k}" style="margin:0;color:var(--text);font-size:.9rem">${l}</label></div>`).join("");
+  $("#ruleMax").value = r.max_length;
+  $("#ruleKeywords").value = (r.sponsor_keywords || []).join("\n");
+  document.querySelectorAll("#rules input, #rules textarea").forEach(el => el.oninput = preview);
+  preview();
+}
+function currentRules() {
+  const rules = {max_length: +$("#ruleMax").value || 0, sponsor_keywords: $("#ruleKeywords").value.split("\n").map(s => s.trim()).filter(Boolean)};
+  RULES.forEach(([k]) => rules[k] = $("#rule_" + k).checked);
+  return rules;
+}
+let previewTimer;
+function preview() {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const r = await api("/api/rules/preview", {method: "POST", body: {text: $("#previewIn").value, rules: currentRules()}});
+    $("#previewOut").value = r.cleaned;
+  }, 250);
+}
+$("#rulesSave").onclick = async () => {
+  await api("/api/settings", {method: "POST", body: {rules: currentRules()}});
+  $("#rulesSaved").textContent = "opgeslagen; alle beschrijvingen worden opnieuw gepusht"; setTimeout(() => $("#rulesSaved").textContent = "", 4000);
+};
+
+// --- status ---
+async function loadStatus() {
+  const s = await api("/api/status");
+  const pct = Math.min(100, s.quota_today / 100);
+  $("#quota").innerHTML = `${s.quota_today} van 10.000 units<div class="bar"><div style="width:${pct}%"></div></div><div class="muted" style="margin-top:.4rem">${s.counts.subscriptions} abonnementen, ${s.counts.entries} video's, ${s.counts.in_plex} met metadata in Plex${s.sync.current ? `<br>nu bezig: ${esc(s.sync.current)}` : ""}</div>`;
+  const max = s.cache.max_gb ? s.cache.max_gb * 1073741824 : 0;
+  $("#cacheStat").innerHTML = `${gb(s.cache.bytes)}${max ? " van " + s.cache.max_gb + " GB" : ""} · ${s.cache.files} video's${max ? `<div class="bar"><div style="width:${Math.min(100, s.cache.bytes / max * 100)}%"></div></div>` : ""}
+    <div class="muted" style="margin-top:.4rem">${s.cache.downloads.length ? "Downloads: " + s.cache.downloads.map(d => esc(d.video_id) + " (" + gb(d.bytes) + ")").join(", ") : "Geen downloads bezig"}</div>`;
+  const q = s.plex.queue;
+  $("#plexStat").innerHTML = s.plex.configured
+    ? `wacht op scan: ${q.unmatched} · metadata: ${q.metadata} · posters: ${q.posters} · te verwijderen: ${q.deletes}${s.plex.last_error ? `<div class="err">${esc(s.plex.last_error)}</div>` : ""}<div class="muted" style="margin-top:.4rem">gepusht: ${s.plex.stats.metadata} metadata, ${s.plex.stats.posters} posters, ${s.plex.stats.shows} series</div>`
+    : '<span class="err">Plex is niet ingesteld (Instellingen)</span>';
+  $("#log").textContent = s.log.slice().reverse().join("\n");
+}
+setInterval(() => { const tab = document.querySelector("nav .active").dataset.tab; if (tab === "status") loadStatus(); if (tab === "subs") loadSubs(); }, 10000);
+loadSubs();
+</script>
+</body>
+</html>

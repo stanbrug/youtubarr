@@ -1,0 +1,47 @@
+# Youtubarr + the rclone mount Plex reads from.
+#
+# The mount appears on the host at /mnt/youtubarr. Give your Plex container
+#     - /mnt/youtubarr:/mnt/youtubarr:rslave
+# and set "Pad van de rclone-mount zoals Plex hem ziet" to /mnt/youtubarr.
+services:
+  youtubarr:
+    build: .
+    image: youtubarr:latest
+    container_name: youtubarr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # web UI; put it behind your proxy/whitelist if the host is public
+    volumes:
+      - ./data:/data         # database, cache, stub templates
+    environment:
+      - TZ=Europe/Amsterdam
+      # Optional first-start seeds; afterwards everything is set in the web UI:
+      # - YOUTUBARR_YOUTUBE_API_KEY=...
+      # - YOUTUBARR_PLEX_URL=http://plex:32400
+
+  youtubarr-mount:
+    image: rclone/rclone:latest
+    container_name: youtubarr-mount
+    restart: unless-stopped
+    depends_on:
+      - youtubarr
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor=unconfined
+    volumes:
+      - /mnt/youtubarr:/mnt/youtubarr:rshared
+    entrypoint: ["sh", "-c"]
+    # Ubuntu hosts ship an AppArmor profile for /usr/bin/fusermount3 that
+    # also applies inside containers and makes the mount fail with
+    # "Permission denied"; a copy elsewhere on PATH is not matched by it.
+    command:
+      - >-
+        mkdir -p /opt/fuse && cp /usr/bin/fusermount3 /opt/fuse/fusermount3 &&
+        export PATH=/opt/fuse:$$PATH &&
+        exec rclone mount :http: /mnt/youtubarr
+        --http-url http://youtubarr:8080/library/
+        --allow-other --allow-non-empty --read-only
+        --vfs-cache-mode off --dir-cache-time 30s --poll-interval 0
