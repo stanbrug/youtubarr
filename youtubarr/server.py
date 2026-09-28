@@ -488,9 +488,21 @@ def _parse_range(header, size):
     return start, min(end, size - 1)
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        # rclone drops and reopens connections all the time (read-ahead,
+        # seeks); a reset socket is routine, not worth a traceback.
+        import sys
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def serve(app, host="0.0.0.0", port=8080):
     Handler.app = app
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _Server((host, port), Handler)
     server.daemon_threads = True
     log.info(f"listening on {host}:{port}")
     server.serve_forever()
