@@ -118,6 +118,10 @@ DEFAULT_SETTINGS = {
     "max_cache_gb": "50",
     "cookies_file": "",
     "probe_fallback_bytes": str(32 * 1024 * 1024),
+    # Only download when Plex reports a playback session for the video, so
+    # scans and background analysis never reach YouTube.
+    "require_plex_session": "1",
+    "playback_confirm_secs": "8",
     "ui_password": "",
     "rules": json.dumps(DEFAULT_RULES),
 }

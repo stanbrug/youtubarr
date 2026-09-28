@@ -14,16 +14,18 @@ header and a real header can't be mixed within one stream):
    file is Plex's own scanner/analyzer; nobody can press play on an item that
    isn't in the library yet. "Analyzed" comes from the Plex API: the Plex
    worker marks an entry once Plex lists its episode with codec info.
-4. Plex HAS analyzed it             -> this is a play: start the download.
-
-Plex only re-reads an unchanged file when told to (manual Analyze, or the
-scheduled media-analysis / thumbnail tasks, which must be off -- see README).
+4. Plex HAS analyzed it             -> a play, if Plex confirms it: the
+   download only starts when /status/sessions shows a session for this
+   video (polled for up to playback_confirm_secs). Otherwise it is a Plex
+   background read (thumbnails, intro/credit markers, loudness, deep
+   analysis, a rescan) and gets the stub.
 
 Fallback while in (3): a probe reads a few KiB of header, then seeks (a new
 request) past the Void. A single request that streams more than
-probe_fallback_bytes of stub padding sequentially is a player, not a probe
-(someone pressed play before the worker saw the analysis). We start the
-download and cut that response short; the player's retry gets the real file.
+probe_fallback_bytes of stub padding sequentially is either a player that
+pressed play before the worker saw the analysis, or a Plex task reading the
+whole file. The response is cut short either way; the download only starts if
+Plex has a session for the video, and the player's retry gets the real file.
 That one attempt fails -- the price of never touching YouTube for a probe.
 """
 
@@ -75,6 +77,9 @@ class App:
         self.ring = None
         self._tree = None
         self._tree_lock = threading.Lock()
+        self._sessions_lock = threading.Lock()
+        self._sessions_at = 0.0
+        self._sessions_val = (set(), set())
 
     def tree(self):
         with self._tree_lock:
@@ -104,6 +109,37 @@ class App:
         if entry.get("plex_analyzed_at") is None:
             return "stub"
         return "play"
+
+    def playback_confirmed(self, entry, video, wait=0.0):
+        """Does Plex have a playback session for this video? Polls
+        /status/sessions for up to `wait` seconds: the session shows up a
+        moment after the player's first read. Without a working Plex
+        connection we can't tell and keep the old behaviour (True)."""
+        plex = self.plex.plex if self.plex else None
+        if plex is None or not plex.configured() or not self.db.int_setting("require_plex_session", 1):
+            return True
+        key = str(entry.get("plex_key") or "")
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                ids, keys = self._sessions(plex)
+            except Exception as e:
+                log.warning(f"{video['id']}: can't read Plex sessions ({e}), assuming playback")
+                return True
+            if video["id"] in ids or (key and key in keys):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.5)
+
+    def _sessions(self, plex):
+        # Shared for 0.5 s: a player opens several ranges at once.
+        with self._sessions_lock:
+            now = time.monotonic()
+            if now - self._sessions_at > 0.5:
+                self._sessions_val = plex.playing()
+                self._sessions_at = now
+            return self._sessions_val
 
     def stub_header(self, video):
         return self.stubs.header(video["duration"], self.estimated_size(video),
@@ -419,6 +455,14 @@ class Handler(BaseHTTPRequestHandler):
 
         mode = self.app.mode(entry, video)
         if mode == "play":
+            # A read of an analyzed file: a player -- or a Plex background
+            # task (thumbnails, markers, loudness, deep analysis) or a rescan.
+            # Only a real Plex session may touch YouTube.
+            wait = self.app.db.float_setting("playback_confirm_secs", 8)
+            if not self.app.playback_confirmed(entry, video, wait):
+                log.info(f"{video['id']}: read without a Plex session -> stub, no download")
+                mode = "stub"
+        if mode == "play":
             log.info(f"{video['id']}: play -> downloading ({video['title']})")
             self.app.cache.start(video)
             mode = "download"
@@ -443,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             if mode == "stub":
-                self._send_stub(video, start, end, size)
+                self._send_stub(entry, video, start, end, size)
             else:
                 self.app.cache.touch(video["id"])
                 for chunk in self.app.cache.read(video, start, end, size):
@@ -454,7 +498,7 @@ class Handler(BaseHTTPRequestHandler):
             log.error(f"{video['id']}: {e}")
             self.close_connection = True
 
-    def _send_stub(self, video, start, end, size):
+    def _send_stub(self, entry, video, start, end, size):
         header = self.app.stub_header(video)
         limit = self.app.db.int_setting("probe_fallback_bytes", 32 * 1024 * 1024)
         pos, sent = start, 0
@@ -464,9 +508,15 @@ class Handler(BaseHTTPRequestHandler):
             sent += chunk_end - pos + 1
             pos = chunk_end + 1
             if sent > limit and pos > len(header):
-                log.warning(f"{video['id']}: {sent} bytes of stub streamed in one request -> "
-                            f"treating as playback, starting download")
-                self.app.cache.start(video)
+                # Plex reads whole files for its own analysis too; only a
+                # session that is actually playing this video counts.
+                if self.app.playback_confirmed(entry, video):
+                    log.warning(f"{video['id']}: {sent} bytes of stub streamed while Plex plays it "
+                                f"-> starting download")
+                    self.app.cache.start(video)
+                else:
+                    log.info(f"{video['id']}: {sent} bytes of stub read without a Plex session "
+                             f"(analysis/thumbnails?) -> cut off, no download")
                 self.close_connection = True
                 return
 

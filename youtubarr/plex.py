@@ -139,6 +139,21 @@ class Plex:
     def delete(self, key):
         self._req("DELETE", f"/library/metadata/{key}")
 
+    def playing(self):
+        """(video ids, rating keys) of everything Plex is streaming right now,
+        any client, direct play or transcode."""
+        data = self._req("GET", "/status/sessions", timeout=5) or {}
+        ids, keys = set(), set()
+        for item in data.get("MediaContainer", {}).get("Metadata", []) or []:
+            if item.get("ratingKey"):
+                keys.add(str(item["ratingKey"]))
+            for media in item.get("Media", []) or []:
+                for part in media.get("Part", []) or []:
+                    m = layout.VIDEO_ID_RE.search(part.get("file") or "")
+                    if m:
+                        ids.add(m.group(1))
+        return ids, keys
+
 
 class RateLimiter:
     def __init__(self, db):

@@ -22,7 +22,11 @@ Plex → rclone HTTP mount → youtubarr (HTTP) → stub | cache ← yt-dlp
   stable size (duration × estimated bitrate).
 - **Stub**: until Plex has analyzed a file, reads get a real Matroska header
   (h264 + AAC tracks, real duration) and padding. No YouTube request.
-- **Play**: once Plex has analyzed a file, a read is a play: yt-dlp fetches
+- **Play**: once Plex has analyzed a file, a read is a play only if Plex
+  confirms it: `/status/sessions` must show a session for that video (polled
+  for up to *playback_confirm_secs*, default 8). Scans, re-analysis and other
+  Plex background reads get the stub and never reach YouTube
+  (*require_plex_session*, default on). For a confirmed play, yt-dlp fetches
   h264 + m4a (up to the max height/bitrate), ffmpeg muxes them into the cache
   while downloading. The first read waits up to *wait_for_complete_secs* for
   the finished file (with Cues for seeking); longer videos stream from the
@@ -93,7 +97,13 @@ Anything that reads whole files would download every video.
 | Perform extensive media analysis during maintenance | `ButlerTaskDeepMediaAnalysis` | off |
 | Upgrade media analysis during maintenance | `ButlerTaskUpgradeMediaAnalysis` | off |
 
-Periodic library scans may stay on: an unchanged file isn't re-read.
+Also switch them off in the YouTube library itself (Edit library → Advanced:
+preview thumbnails, intro/credits/ad markers, voice activity, loudness), so
+turning one on globally for other libraries doesn't reach YouTube.
+
+Periodic library scans may stay on: an unchanged file isn't re-read. Even if
+a setting slips, reads without a Plex playback session never start a download
+(see *Play* above).
 
 ## Test results
 

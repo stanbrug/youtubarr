@@ -148,6 +148,86 @@ class FakeApp:
         pass
 
 
+class FakePlexClient:
+    def __init__(self, sessions=None, error=None):
+        self.sessions = sessions or (set(), set())
+        self.error = error
+        self.calls = 0
+
+    def configured(self):
+        return True
+
+    def playing(self):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.sessions
+
+
+class PlaybackConfirmTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.db = Database(os.path.join(self.dir, "t.db"))
+        self.app = server.App(self.db, None, None)
+        self.entry = {"plex_key": 42, "plex_analyzed_at": 1}
+        self.video = {"id": "abcdefghijk"}
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def with_plex(self, client):
+        self.app.plex = type("W", (), {"plex": client})()
+
+    def test_without_plex_keeps_old_behaviour(self):
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video))
+
+    def test_background_read_is_not_playback(self):
+        self.with_plex(FakePlexClient())
+        self.assertFalse(self.app.playback_confirmed(self.entry, self.video))
+
+    def test_session_by_file_or_rating_key(self):
+        self.with_plex(FakePlexClient(({"abcdefghijk"}, set())))
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video))
+        self.app._sessions_at = 0
+        self.with_plex(FakePlexClient((set(), {"42"})))
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video))
+
+    def test_other_video_playing_does_not_count(self):
+        self.with_plex(FakePlexClient(({"zzzzzzzzzzz"}, {"7"})))
+        self.assertFalse(self.app.playback_confirmed(self.entry, self.video))
+
+    def test_waits_for_session_to_appear(self):
+        client = FakePlexClient()
+        self.with_plex(client)
+        orig = client.playing
+
+        def later():
+            result = orig()
+            if client.calls >= 2:
+                return ({"abcdefghijk"}, set())
+            return result
+        client.playing = later
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video, wait=3))
+
+    def test_plex_error_or_disabled_setting_allows_playback(self):
+        self.with_plex(FakePlexClient(error=RuntimeError("down")))
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video))
+        self.with_plex(FakePlexClient())
+        self.db.update_settings({"require_plex_session": "0"})
+        self.assertTrue(self.app.playback_confirmed(self.entry, self.video))
+
+
+class PlexSessionsParseTests(unittest.TestCase):
+    def test_playing_reads_part_files_and_keys(self):
+        from youtubarr.plex import Plex
+        p = Plex.__new__(Plex)
+        p._req = lambda *a, **k: {"MediaContainer": {"Metadata": [
+            {"ratingKey": "9", "Media": [{"Part": [{"file": "/mnt/youtubarr/C [UCx]/Season 2024/C - s2024e010101 - T [abcdefghijk].mkv"}]}]},
+            {"ratingKey": "10", "Media": [{"Part": [{"file": "/mnt/debrid/film.mkv"}]}]},
+        ]}}
+        self.assertEqual(p.playing(), ({"abcdefghijk"}, {"9", "10"}))
+
+
 class SyncTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
